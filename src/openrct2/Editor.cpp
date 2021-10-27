@@ -24,6 +24,7 @@
 #include "localisation/Localisation.h"
 #include "localisation/LocalisationService.h"
 #include "management/NewsItem.h"
+#include "object/DefaultObjects.h"
 #include "object/ObjectManager.h"
 #include "object/ObjectRepository.h"
 #include "peep/Staff.h"
@@ -59,6 +60,7 @@ namespace Editor
     static bool LoadLandscapeFromSC4(const char* path);
     static void FinaliseMainView();
     static bool ReadS6(const char* path);
+    static bool ReadPark(const char* path);
     static void ClearMapForEditing(bool fromSave);
 
     static void object_list_load()
@@ -75,7 +77,11 @@ namespace Editor
         objectRepository.LoadOrConstruct(localisationService.GetCurrentLanguage());
 
         // Reset loaded objects to just defaults
-        objectManager.LoadDefaultObjects();
+        // Load minimum required objects (like surface and edge)
+        for (const auto& entry : MinimumRequiredObjects)
+        {
+            objectManager.LoadObject(entry);
+        }
     }
 
     /**
@@ -85,7 +91,6 @@ namespace Editor
     void Load()
     {
         OpenRCT2::Audio::StopAll();
-        object_manager_unload_all_objects();
         object_list_load();
         OpenRCT2::GetContext()->GetGameState()->InitAll(150);
         gScreenFlags = SCREEN_FLAGS_SCENARIO_EDITOR;
@@ -231,6 +236,8 @@ namespace Editor
                 return LoadLandscapeFromSC4(path);
             case FILE_EXTENSION_SV4:
                 return LoadLandscapeFromSV4(path);
+            case FILE_EXTENSION_PARK:
+                return ReadPark(path);
             default:
                 return false;
         }
@@ -297,6 +304,32 @@ namespace Editor
         return true;
     }
 
+    static bool ReadPark(const char* path)
+    {
+        try
+        {
+            auto context = GetContext();
+            auto& objManager = context->GetObjectManager();
+            auto importer = ParkImporter::CreateParkFile(context->GetObjectRepository());
+            auto loadResult = importer->Load(path);
+            objManager.LoadObjects(loadResult.RequiredObjects);
+            importer->Import();
+
+            ClearMapForEditing(true);
+            gEditorStep = EditorStep::LandscapeEditor;
+            gScreenAge = 0;
+            gScreenFlags = SCREEN_FLAGS_SCENARIO_EDITOR;
+            viewport_init_all();
+            context_open_window_view(WV_EDITOR_MAIN);
+            FinaliseMainView();
+            return true;
+        }
+        catch (const std::exception&)
+        {
+            return false;
+        }
+    }
+
     static void ClearMapForEditing(bool fromSave)
     {
         map_remove_all_rides();
@@ -322,8 +355,6 @@ namespace Editor
         gGuestChangeModifier = 0;
         if (fromSave)
         {
-            research_populate_list_random();
-
             if (gParkFlags & PARK_FLAGS_NO_MONEY)
             {
                 gParkFlags |= PARK_FLAGS_NO_MONEY_SCENARIO;
@@ -453,9 +484,17 @@ namespace Editor
 
         if (!isTrackDesignerManager)
         {
-            if (!editor_check_object_group_at_least_one_selected(ObjectType::Paths))
+            if (!editor_check_object_group_at_least_one_surface_selected(false))
             {
-                return { ObjectType::Paths, STR_AT_LEAST_ONE_PATH_OBJECT_MUST_BE_SELECTED };
+                return { ObjectType::FootpathSurface, STR_AT_LEAST_ONE_FOOTPATH_NON_QUEUE_SURFACE_OBJECT_MUST_BE_SELECTED };
+            }
+            if (!editor_check_object_group_at_least_one_surface_selected(true))
+            {
+                return { ObjectType::FootpathSurface, STR_AT_LEAST_ONE_FOOTPATH_QUEUE_SURFACE_OBJECT_MUST_BE_SELECTED };
+            }
+            if (!editor_check_object_group_at_least_one_selected(ObjectType::FootpathRailings))
+            {
+                return { ObjectType::FootpathRailings, STR_AT_LEAST_ONE_FOOTPATH_RAILING_OBJECT_MUST_BE_SELECTED };
             }
         }
 
@@ -546,12 +585,16 @@ namespace Editor
 
     void SetSelectedObject(ObjectType objectType, size_t index, uint32_t flags)
     {
-        auto& list = _editorSelectedObjectFlags[EnumValue(objectType)];
-        if (list.size() <= index)
+        if (index != OBJECT_ENTRY_INDEX_NULL)
         {
-            list.resize(index + 1);
+            assert(static_cast<int32_t>(objectType) < object_entry_group_counts[EnumValue(ObjectType::Paths)]);
+            auto& list = _editorSelectedObjectFlags[EnumValue(objectType)];
+            if (list.size() <= index)
+            {
+                list.resize(index + 1);
+            }
+            list[index] |= flags;
         }
-        list[index] |= flags;
     }
 } // namespace Editor
 

@@ -837,7 +837,6 @@ private:
     bool FindVehicleToEnter(Ride* ride, std::vector<uint8_t>& car_array);
     void GoToRideEntrance(Ride* ride);
 };
-
 static_assert(sizeof(Guest) <= 512);
 
 struct rct_sprite_bounds
